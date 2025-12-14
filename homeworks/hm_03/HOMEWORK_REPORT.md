@@ -211,6 +211,248 @@ from public.students
 ![sql_task_11_5](./screenshots/sql_task_11_5.png)
 
 Удалить одного выбранного студента.
+```
+delete from students 
+where id=51
+```
+![sql_task_11_6](./screenshots/sql_task_11_6.png)
+
 Вывести полный список студентов.
+```
+select * from students
+```
+![sql_task_11_7](./screenshots/sql_task_11_7.png)
+
 Удалить таблицу студентов.
+```
+drop table if exists students;
+```
+![sql_task_11_8](./screenshots/sql_task_11_8.png)
+
 Выполнить запрос на выборку из таблицы студентов и вывести его результат (показать, что таблица удалена).
+```
+select * from public.students
+```
+![sql_task_11_9](./screenshots/sql_task_11_9.png)
+
+
+## Этап JOIN и агрегатные функции
+
+12. Вывести количество уникальных имен клиентов.
+```
+select 
+	count(distinct first_name)
+from customer
+```
+![sql_task_12](./screenshots/sql_task_12.png)
+
+13. Вывести 5 самых часто встречающихся сумм оплаты: саму сумму, даты таких оплат, количество платежей с этой суммой и общую сумму этих платежей.
+```
+select 
+	amount,
+	count(*) as payment_count,
+	sum(amount) as total_amount,
+	array_agg(payment_date) as payment_dates 
+from public.payment 
+group by amount 
+order by payment_count desc 
+limit 5
+```
+![sql_task_13](./screenshots/sql_task_13.png)
+
+14. Вывести количество ячеек (записей) в инвентаре для каждого магазина.
+```
+select 
+	store_id,
+	count(*)
+from public.inventory 
+group by store_id
+```
+![sql_task_14](./screenshots/sql_task_14.png)
+
+15. Вывести адреса всех магазинов, используя соединение таблиц (JOIN).
+```
+select 
+	s.store_id,
+	a.address
+from public.store s 
+join public.address a 
+	on s.address_id = a.address_id 
+```
+![sql_task_15](./screenshots/sql_task_15.png)
+
+16. Вывести полные имена всех клиентов и всех сотрудников в одну колонку (объединенный список).
+```
+select first_name || ' ' || last_name as full_name  from public.customer
+union all
+select first_name || ' ' || last_name as full_name  from public.staff; 
+```
+![sql_task_16](./screenshots/sql_task_16.png)
+
+17. Вывести имена клиентов, которые не совпадают ни с одним именем сотрудников (операция EXCEPT или аналог).
+```
+select 
+	distinct first_name
+from public.customer
+except
+	select 
+		distinct first_name
+	from public.staff
+```
+![sql_task_17](./screenshots/sql_task_17.png)
+
+18. Вывести, кто (customer_id), когда (rental_date, приведенная к типу date) и у кого (staff_id) брал диски в аренду в июне 2005 года.
+```
+select 
+    customer_id, 
+    rental_date::date as rental_date, 
+    staff_id 
+from public.rental
+where 
+    rental_date >= '2005-06-01' and rental_date < '2005-07-01'
+```
+![sql_task_18](./screenshots/sql_task_7.png)
+
+19. Вывести идентификаторы всех клиентов, у которых 40 и более оплат. Для каждого такого клиента посчитать средний размер транзакции, округлить его до двух знаков после запятой и вывести в отдельном столбце.
+```
+select 
+	customer_id,
+	count(*) count_payments,
+	round(avg(amount), 2) avg_payment 
+from public.payment
+group by customer_id
+having count(*) >= 40
+```
+![sql_task_19](./screenshots/sql_task_19.png)
+
+20. Вывести идентификатор актера, его полное имя и количество фильмов, в которых он снялся. Определить актера, снявшегося в наибольшем количестве фильмов (группировать по id актера).
+```
+select 
+	fa.actor_id,
+	a.first_name || ' ' || a.last_name as full_name,
+	count(*) as count_films 
+from public.film_actor fa 
+join public.actor a 
+on a.actor_id = fa.actor_id 
+group by fa.actor_id, full_name
+order by count_films desc
+```
+![sql_task_20](./screenshots/sql_task_20.png)
+
+21. Посчитать выручку по каждому месяцу работы проката. Месяц должен определяться по дате аренды (rental_date), а не по дате оплаты (payment_date). Округлить выручку до одного знака после запятой. Отсортировать строки в хронологическом порядке. В отчете должен присутствовать месяц, в который не было выручки (нет данных о платежах).
+```
+with start_end_months as (
+   select date_trunc('month', min(rental_date)) as start_month,
+          date_trunc('month', max(rental_date)) as end_month
+   from public.rental
+), months_in_report as (
+   select generate_series(
+       (select start_month from start_end_months),
+       (select end_month from start_end_months),
+       interval '1 month'
+   ) as month
+), revenue as (
+   select
+       date_trunc('month', r.rental_date) as month,
+       sum(p.amount) as total_revenue
+   from public.rental r
+   left join public.payment p on r.rental_id = p.rental_id
+   group by date_trunc('month', r.rental_date)
+)
+select
+   mr.month,
+   round(coalesce(r.total_revenue, 0), 1) as revenue
+from months_in_report  mr
+left join revenue r using (month)
+order by mr.month;
+```
+![sql_task_21](./screenshots/sql_task_21.png)
+
+22. Найти средний платеж по каждому жанру фильма. Отобразить только те жанры, к которым относится более 60 различных фильмов. Округлить средний платеж до двух знаков после запятой и дать понятные названия столбцам. Отсортировать жанры по убыванию среднего платежа.
+```
+select
+	c.name genre,
+	round(avg(p.amount), 2) as avg_payment 
+from public.category c 
+join public.film_category fc 
+	on fc.category_id = c.category_id 
+	join public.inventory i 
+		on i.film_id = fc.film_id 
+		join public.rental r 
+			on r.inventory_id = i.inventory_id 
+			join public.payment p 
+				on p.rental_id = r.rental_id 
+group by c.name
+having count(distinct fc.film_id ) > 60 
+order by avg_payment desc
+```
+![sql_task_22](./screenshots/sql_task_22.png)
+
+23. Определить, какие фильмы чаще всего берут напрокат по субботам. Вывести названия первых 5 самых популярных фильмов. При одинаковой популярности отдать предпочтение фильму, который идет раньше по алфавиту.
+```
+select 
+	f.title,
+	count(*) count_rent
+from public.rental r
+join public.inventory i 
+	on i.inventory_id = r.inventory_id 
+	join public.film f 
+		on f.film_id = i.film_id 
+where 
+	extract(dow from r.rental_date) = 6 
+group by f.title
+order by count_rent desc, f.title asc
+limit 5
+```
+![sql_task_23](./screenshots/sql_task_23.png)
+
+## Этап Оконные функции и простые запросы
+
+24. Для каждой оплаты вывести сумму, дату и день недели (название дня недели текстом).
+```
+select 
+	amount,
+	payment_date,
+	to_char(payment_date , 'day') as week_day
+from public.payment
+```
+![sql_task_24](./screenshots/sql_task_24.png)
+
+25. 
+Для каждой оплаты вывести:
+сумму платежа;
+дату платежа;
+день недели, соответствующий дате платежа, в текстовом виде (например: «понедельник», «вторник» и т.п.).
+```
+select 
+	amount,
+	payment_date,
+	to_char(payment_date , 'day') as week_day
+from public.payment
+```
+![sql_task_25_1](./screenshots/sql_task_24.png)
+
+Распределить фильмы по трем категориям в зависимости от длительности:
+«Короткие» — менее 70 минут;
+«Средние» — от 70 минут (включительно) до 130 минут (не включая 130);
+«Длинные» — от 130 минут и более.
+Для каждой категории необходимо:
+посчитать количество прокатов (то есть сколько раз фильмы этой категории брались в аренду);
+посчитать количество фильмов, которые относятся к этой категории и хотя бы один раз сдавались в прокат.
+Фильмы, у которых не было ни одного проката, не должны учитываться в подсчете количества фильмов в категории. Продумать, какой тип соединения таблиц нужно использовать, чтобы этого добиться.  
+Для дальнейших заданий считать, что создана таблица weekly_revenue, в которой для каждой недели и года хранится суммарная выручка компании за эту неделю (на основании данных о прокатах и платежах).
+
+26. На основе таблицы weekly_revenue рассчитать накопленную (кумулятивную) сумму недельной выручки бизнеса. Вывести все столбцы таблицы weekly_revenue и добавить к ним столбец с накопленной выручкой. Накопленную выручку округлить до целого числа.
+27. На основе таблицы weekly_revenue рассчитать скользящую среднюю недельной выручки, используя для расчета три недели: предыдущую, текущую и следующую. Вывести всю таблицу weekly_revenue и добавить:  
+столбец с накопленной суммой выручки;
+столбец со скользящей средней недельной выручки.
+Скользящую среднюю округлить до целого числа.
+
+28. Рассчитать прирост недельной выручки бизнеса в процентах по сравнению с предыдущей неделей.
+Прирост в процентах определяется как:  
+(текущая недельная выручка – выручка предыдущей недели) / выручка предыдущей недели × 100%.
+Вывести всю таблицу weekly_revenue и добавить:
+​​​​​​​столбец с накопленной суммой выручки;
+столбец со скользящей средней;
+столбец с приростом недельной выручки в процентах.
+Значение прироста в процентах округлить до двух знаков после запятой.
