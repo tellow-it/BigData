@@ -419,19 +419,6 @@ from public.payment
 ![sql_task_24](./screenshots/sql_task_24.png)
 
 25. 
-Для каждой оплаты вывести:
-сумму платежа;
-дату платежа;
-день недели, соответствующий дате платежа, в текстовом виде (например: «понедельник», «вторник» и т.п.).
-```
-select 
-	amount,
-	payment_date,
-	to_char(payment_date , 'day') as week_day
-from public.payment
-```
-![sql_task_25_1](./screenshots/sql_task_24.png)
-
 Распределить фильмы по трем категориям в зависимости от длительности:
 «Короткие» — менее 70 минут;
 «Средние» — от 70 минут (включительно) до 130 минут (не включая 130);
@@ -440,13 +427,81 @@ from public.payment
 посчитать количество прокатов (то есть сколько раз фильмы этой категории брались в аренду);
 посчитать количество фильмов, которые относятся к этой категории и хотя бы один раз сдавались в прокат.
 Фильмы, у которых не было ни одного проката, не должны учитываться в подсчете количества фильмов в категории. Продумать, какой тип соединения таблиц нужно использовать, чтобы этого добиться.  
+```
+with film_category_by_length as (
+	select 
+		film_id,
+		case
+			when length < 70 then 'Короткие' 
+			when length < 130 then 'Средние'
+			else 'Длинные' 
+		end as film_length_cat 	
+	from public.film
+)
+select 
+	fc_l.film_length_cat "Категория",
+	count(r.rental_id) "Количество прокатов",
+	count(distinct fc_l.film_id) "Количество фильмов" 
+from film_category_by_length fc_l
+join public.inventory i
+	on fc_l.film_id = i.film_id 
+	join public.rental r 
+		on i.inventory_id  = r.inventory_id
+group by  fc_l.film_length_cat 
+```
+![sql_task_25_2](./screenshots/sql_task_25_2.png)
+
 Для дальнейших заданий считать, что создана таблица weekly_revenue, в которой для каждой недели и года хранится суммарная выручка компании за эту неделю (на основании данных о прокатах и платежах).
+```
+create table weekly_revenue (
+    year INTEGER NOT NULL,
+    week INTEGER NOT NULL,
+    revenue NUMERIC(10, 2) NOT NULL,
+    PRIMARY KEY (year, week)
+)
+```
+```
+insert into weekly_revenue (year, week, revenue)
+select 
+	extract(year from payment_date) "year",
+	extract(week from payment_date) "week",
+	sum(amount) as revenue
+from public.payment
+group by year, week 
+order by year, week
+```
+```
+select * from weekly_revenue
+```
+![sql_task_26_0](./screenshots/sql_task_26_0.png)
 
 26. На основе таблицы weekly_revenue рассчитать накопленную (кумулятивную) сумму недельной выручки бизнеса. Вывести все столбцы таблицы weekly_revenue и добавить к ним столбец с накопленной выручкой. Накопленную выручку округлить до целого числа.
+```
+select 
+	year,
+	week,
+	revenue,
+	round(sum(revenue) over(order by year, week)) cumulative_revenue
+from weekly_revenue
+order by year, week
+```
+![sql_task_26_1](./screenshots/sql_task_26_1.png)
+
 27. На основе таблицы weekly_revenue рассчитать скользящую среднюю недельной выручки, используя для расчета три недели: предыдущую, текущую и следующую. Вывести всю таблицу weekly_revenue и добавить:  
 столбец с накопленной суммой выручки;
 столбец со скользящей средней недельной выручки.
 Скользящую среднюю округлить до целого числа.
+```
+select 
+	year,
+	week,
+	revenue,
+	round(sum(revenue) over(order by year, week)) cumulative_revenue,
+	round(avg(revenue) over (order by year, week rows between 1 preceding and 1 following)) weekly_revenue
+from weekly_revenue
+order by year, week
+```
+![sql_task_27](./screenshots/sql_task_27.png)
 
 28. Рассчитать прирост недельной выручки бизнеса в процентах по сравнению с предыдущей неделей.
 Прирост в процентах определяется как:  
@@ -456,3 +511,20 @@ from public.payment
 столбец со скользящей средней;
 столбец с приростом недельной выручки в процентах.
 Значение прироста в процентах округлить до двух знаков после запятой.
+```
+select 
+	year,
+	week,
+	revenue,
+	round(sum(revenue) over(order by year, week)) cumulative_revenue,
+	round(avg(revenue) over (order by year, week rows between 1 preceding and 1 following)) moving_avg_weekly_revenue,
+	round(
+        (revenue - lag(revenue) over (order by year, week)) 
+        / nullif(lag(revenue) over (order by year, week), 0) 
+        * 100, 
+        2
+    ) as revenue_growth_pct
+from weekly_revenue
+order by year, week
+```
+![sql_task_28](./screenshots/sql_task_28.png)
